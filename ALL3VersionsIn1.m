@@ -1,0 +1,1045 @@
+clc;
+clear;
+close all;
+
+%Problem Definition
+% I have a depo a tank some service stations and polmoni stations.
+% Is found the best route between depo and service stations. 
+% in case where tank has not riched his full capacity than is cosidered the list
+% of polmoni stations if its worthy to add from them in the route with the 
+% condition that raport km/kl not to be increased
+
+% 1-Use Simulated Annealing to find the best route between the depot and service stations.
+%2- Use Simulated Annealing again to consider polmoni stations that can be added without increasing the km/kl ratio.
+
+%constraints : tank capacity, hours of travel, km of travel
+% Define locations
+
+conn=database('DBSPEED','sa','Db_Sp33d_test');
+ 
+% Retrieve data from database
+[service_station_demand, depot, service_stations] = retrieveData(conn);
+
+% Close the database connection
+close(conn);
+
+% Display collected data
+disp('Service station demand:');
+disp(service_station_demand); %255000
+
+disp('Depo coordinates:');
+disp(depot);
+
+disp('Service stations:');
+disp(service_stations);
+
+
+
+%depot = [0, 0];
+%service_stations = [10, 20; 30, 40; 5, 0; 6, 7; 5, 34; 20, 4; 45, 44; 16, 16; 23, 34; 40, 25; 34, 21; 3, 29];
+%service_station_demand = [10, 10, 5, 15, 7, 13, 11, 6, 3, 19, 1, 12];
+polmoni_stations =[32, 4; 35,10; 40,15; 44,10; 40,17; 37,17] %[15, 25; 25, 35; 50, -5] %[15, 20; 25, 35; 10, 5]; 
+% Tank parameters
+tank_capacity = 440000; %37; % Maximum tank capacity in kiloliters
+tank_initial = 0;
+tank_max_travel_hour= 9;
+max_distance = 700;
+% Assuming average speed in km/h
+average_speed = 85;  % Example speed in km/h
+
+
+%testing function cost=100.64, km/kl=3.35, Total Product Distributed: 10 + 20 = 30
+% [current_cost, product_distributed, current_km_kl_ratio] = CalculateCostAndRatio([10, 20; 30, 40], [0, 0], 0, [10, 20], 115, false);
+
+
+% Generate initial solution
+initial_solution = GenerateInitialSolution(depot, service_stations);
+
+
+% Start timing
+tic;
+
+% Optimize initial solution using Simulated Annealing
+[best_solution, best_cost, best_km_kl_ratio] = SimulatedAnnealing(depot, initial_solution, tank_initial, service_stations, polmoni_stations, tank_capacity,service_station_demand, max_distance);
+% Stop timing
+time_taken_S = toc;
+disp(['Time taken for SA: ' num2str(time_taken_S) ' seconds']);
+
+% Calculate travel time
+travel_time_hours = best_cost / average_speed;
+disp(['Travel time: ', num2str(travel_time_hours), ' hours']);
+total_demand = sum(service_station_demand);
+
+%if total_demand < tank_capacity &&  best_cost< inf && travel_time_hours< tank_max_travel_hour  %tannk capacity and Service Time Constraint
+%per ca e ke vene kushtin e best cost??
+if   best_cost< inf && travel_time_hours< tank_max_travel_hour && best_cost <max_distance  %tannk capacity and Service Time Constraint
+
+disp('Best Route Between Depot and Service Stations:');
+disp(best_solution);
+disp(['Best Cost: ', num2str(best_cost)]);
+
+% num_service_stations = size(service_stations, 1); % Get the actual number of service stations
+% total_demand = sum(service_station_demand(best_solution <= num_service_stations)); % Calculate demand for service stations only
+%total_demand=  best_cost / best_km_kl_ratio;
+
+%if total_demand < tank_capacity
+
+
+%%version1
+% Add polmoni stations if beneficial
+
+tic;
+
+[final_solution, final_cost,final_km_kl_ratio] = AddPolmoniStations(depot, best_solution, best_cost,best_km_kl_ratio, tank_initial, polmoni_stations, service_stations, tank_capacity, service_station_demand, max_distance);
+% Stop timing
+time_taken_v1 = toc;
+disp(['Time taken for version 1: ' num2str(time_taken_v1) ' seconds']);
+
+travel_time_hours_polmoni = final_cost / average_speed;
+disp(['Travel time: ', num2str(travel_time_hours_polmoni), ' hours']);
+
+if   travel_time_hours_polmoni< tank_max_travel_hour && final_cost<max_distance  %tannk capacity and Service Time Constraint
+
+
+disp('Final Route Including Polmoni Stations (if beneficial):');
+disp(final_solution);
+disp(['Final Cost: ', num2str(final_cost)]);
+end
+PlotRoute(depot, service_stations, polmoni_stations, final_solution);
+    pause(0.01);
+
+%% version2
+% Add polmoni stations if beneficial
+tic;
+[final_solution_v2, final_cost_v2, final_km_kl_ratio_v2, best_polmoni_insert] = addBestPolmoniStation(service_stations,polmoni_stations, best_solution, best_cost, best_km_kl_ratio,depot,tank_initial,service_station_demand,tank_capacity,max_distance);
+% Stop timing
+time_taken_v2 = toc;
+disp(['Time taken for Version 2: ' num2str(time_taken_v2) ' seconds']);
+
+travel_time_hours_polmoni_v2 = final_cost_v2 / average_speed;
+disp(['Travel time: ', num2str(travel_time_hours_polmoni_v2), ' hours']);
+
+if   travel_time_hours_polmoni_v2< tank_max_travel_hour && final_cost_v2<max_distance  %tannk capacity and Service Time Constraint
+
+disp('Final Route Including Polmoni Stations (if beneficial):');
+disp(final_solution_v2);
+disp(['Final Cost: ', num2str(final_cost_v2)]);
+end
+ PlotRoute(depot, service_stations, polmoni_stations, final_solution_v2);
+    pause(0.01);
+
+
+    %%version3
+    % Add polmoni stations if beneficial
+tic;
+%1- Calculate the distances between service stations and depos and find the
+%best polmoni station to be added
+ [distances_polmoni_to_all, min_distances, nearest_indices] = calculate_distances(depot, service_stations, polmoni_stations);
+ % Combine the minimum distances and nearest indices into one matrix
+    min_distances_with_indices = [min_distances, nearest_indices];
+
+      % Find the overall minimum distance and its location
+    [overall_min_distance, polmoni_station_idx] = min(min_distances_with_indices(:, 1));
+    overall_min_location = min_distances_with_indices(polmoni_station_idx, 2);
+
+ % 2- creating the list of the stations and polmoni that will participate
+ 
+% Extract the coordinates of the specified polmoni station
+selected_polmoni_station = polmoni_stations(polmoni_station_idx, :);
+
+% Concatenate the service stations with the selected polmoni station
+combined_vector = [service_stations; selected_polmoni_station];
+
+% Display the result
+disp('Combined vector of service stations with the selected polmoni station:');
+disp(combined_vector);
+
+ % use simmulateing annealing to find the best route between service
+% stations depo and polmoni with the smallest distance
+% Generate initial solution
+initial_solution_v3 = GenerateInitialSolution(depot, combined_vector);
+
+% Optimize initial solution using Simulated Annealing
+[best_solution_polmoni, best_cost_polmoni, best_km_kl_ratio_polmoni] = SimulatedAnnealing_v3(depot, initial_solution_v3, tank_initial, service_stations, polmoni_stations, tank_capacity,service_station_demand, max_distance,true);
+% Stop timing
+time_taken_v3 = toc;
+disp(['Time taken for Version 3: ' num2str(time_taken_v3) ' seconds']);
+
+% Calculate travel time
+travel_time_hours_polmoni_v3 = best_cost_polmoni / average_speed;
+disp(['Travel time: ', num2str(travel_time_hours_polmoni_v3), ' hours']);
+
+if  best_km_kl_ratio_polmoni<= best_km_kl_ratio && travel_time_hours_polmoni_v3< tank_max_travel_hour && best_cost_polmoni<max_distance  %tannk capacity and Service Time Constraint
+final_solution_v3=best_solution_polmoni;
+final_cost_v3= best_cost_polmoni;
+final_km_kl_ratio_v3= best_km_kl_ratio_polmoni;
+disp('Final Route Including Polmoni Stations (if beneficial):');
+disp(final_solution_v3);
+disp(['Final Cost: ', num2str(final_cost_v3)]);
+
+else
+    disp('none of the polmoni stations is added');
+    final_solution_v3=best_solution;
+final_cost_v3= best_cost;
+final_km_kl_ratio_v3= best_km_kl_ratio;
+ 
+end
+% Plot final solution with polmoni stations
+            PlotRoute(depot, service_stations, polmoni_stations, final_solution_v3);
+            pause(0.01);
+
+
+
+else
+    disp('One of the constaints is violated');
+
+end
+
+function initial_solution = GenerateInitialSolution(depot, service_stations)
+    % Create a random permutation of service stations
+    n = size(service_stations, 1);
+    perm = randperm(n);
+    initial_solution = service_stations(perm, :);
+    
+    % Include the depot at the beginning and end
+   % initial_solution = [depot; randomized_stations; depot]; dont includ it
+   % for the moment because the new route it switches them and the route
+   % doesnt start and end with depo
+end
+
+
+function [best_solution, best_cost, best_km_kl_ratio] = SimulatedAnnealing(depot, initial_solution, tank_initial, service_stations, polmoni_stations,tank_capacity, service_station_demand, max_distance)
+    % SA parameters
+    MaxIt = 170;
+    MaxIt2 = 700;
+   % T0 = 150;
+    alpha = 0.95;
+    polmoni_presence= false;
+
+
+   % Estimate initial temperature
+    num_samples = 50;  % Number of random solutions to generate for temperature estimation
+    cost_differences = zeros(num_samples, 1);
+
+    for i = 1:num_samples
+        rand_solution = GenerateInitialSolution(depot, service_stations);
+        [cost, ~, ~] = CalculateCostAndRatio(rand_solution, depot, tank_initial, service_station_demand, tank_capacity, polmoni_presence, max_distance);
+        cost_differences(i) = cost;
+    end
+
+    % Calculate the standard deviation of the cost differences
+    std_dev_cost = std(cost_differences);
+    acceptance_prob=0.8;
+   % T0 = std_dev_cost / log(0.8);  % Initial temperature to achieve approximately 80% acceptance probability
+     T0_n = CalculateInitialTemperature(std_dev_cost, acceptance_prob);
+     T0 = abs(T0_n);
+
+
+    % Initial solution
+    current_solution = initial_solution;
+    [current_cost, ~, current_km_kl_ratio] = CalculateCostAndRatio(current_solution, depot, tank_initial,service_station_demand,tank_capacity, polmoni_presence, max_distance);
+    if current_cost == inf %Distance Constraint and capacity constraints check
+        disp('The total demand of service stations  exceeds the parameters. Optimization cannot proceed.');
+        best_solution = [];
+        best_cost= inf;
+        best_km_kl_ratio= inf;
+        return;
+   
+    end
+
+
+    best_solution = current_solution;
+    best_cost = current_cost;
+    best_km_kl_ratio = current_km_kl_ratio;
+    T = T0;
+
+    % Plot initial solution with service stations and depot
+    % PlotRoute(depot, service_stations, polmoni_stations, current_solution);
+    % pause(0.01);
+
+    for it = 1:MaxIt
+        for it2 = 1:MaxIt2
+            % Create neighbor
+            new_solution = CreateNeighbor(current_solution);
+            [new_cost, ~, new_km_kl_ratio] = CalculateCostAndRatio(new_solution, depot, tank_initial, service_station_demand, tank_capacity, polmoni_presence, max_distance);
+
+            if new_km_kl_ratio< current_km_kl_ratio  && new_cost <= current_cost
+                % Accept better solution
+                current_solution = new_solution;
+                current_cost = new_cost;
+                current_km_kl_ratio = new_km_kl_ratio;
+            else
+                % Accept worse solution conditionally
+                delta_cost = new_cost - current_cost;
+                delta_km_kl_ratio= new_km_kl_ratio- current_km_kl_ratio;
+                p_cost = exp(-delta_cost / T);
+                p_km_kl_ratio =  exp(-delta_km_kl_ratio / T);
+                if rand <= p_km_kl_ratio  && new_cost < inf  && rand <= p_cost
+                    current_solution = new_solution;
+                    current_cost = new_cost;
+                    current_km_kl_ratio = new_km_kl_ratio;
+
+                end
+            end
+
+            % Update best solution
+            if current_km_kl_ratio<= best_km_kl_ratio && current_cost <= best_cost
+                best_solution = current_solution;
+                best_cost = current_cost;
+                best_km_kl_ratio = current_km_kl_ratio;
+            end
+
+         
+        end
+
+        % Reduce temperature
+        T = alpha * T;
+
+        % Print the current iteration and best cost
+        %disp(['Iteration: ' num2str(it) ', Best Cost: ' num2str(best_cost) ', Best Km/KL raport: ' num2str(best_km_kl_ratio)]);
+   % Plot current solution with polmoni stations
+            % PlotRoute(depot, service_stations, polmoni_stations, current_solution);
+            % pause(0.01);
+        end
+end
+
+function [cost, product_distributed, km_kl_ratio] = CalculateCostAndRatio(solution, depot, tank_initial, service_station_demand, tank_capacity, polmoni_presence, max_distance)
+    n = size(solution, 1);
+    cost = 0;
+    product_distributed = tank_initial;
+    current_location = depot;
+
+    for i = 1:n
+        cost = cost + CalculateDistance(current_location, solution(i, :));
+        current_location = solution(i, :);
+
+        if polmoni_presence
+            product_distributed = tank_capacity;
+        else
+            station_demand = service_station_demand(i); 
+            product_distributed = product_distributed + station_demand;
+            if product_distributed > tank_capacity  %Capacity Constraint
+                cost = inf; % Assign a high cost if the capacity is exceeded
+                break;
+            end
+        end
+    end
+   % disp(['cost: ' num2str(cost) ]);
+
+if cost > inf %|| cost >max_distance %capacity and Distance Constraint cause this is not the best route ad can be longer 
+      cost= inf;
+      km_kl_ratio=inf;
+
+
+else 
+      cost = cost + CalculateDistance(current_location, depot);
+ km_kl_ratio = cost / product_distributed;
+end
+
+end
+
+
+function d = CalculateDistance(point1, point2)
+    d = sqrt((point1(1) - point2(1))^2 + (point1(2) - point2(2))^2);
+end
+
+function product_distributed = calculate_product_distributed(route, service_stations, service_station_demand)
+    % Find indices of service stations in the route
+    [~, loc] = ismember(route, service_stations, 'rows');
+    
+    % Filter out zeros which represent non-matching rows
+    loc = loc(loc > 0);
+    
+    % Sum the demands of the matched service stations
+    product_distributed = sum(service_station_demand(loc));
+end
+
+
+function new_solution = CreateNeighbor_OLD(solution)
+    n = size(solution, 1);
+    i = randsample(n, 2);
+    new_solution = solution;
+    new_solution([i(1), i(2)], :) = solution([i(2), i(1)], :);
+end
+ 
+
+function qnew = CreateNeighbor(solution)
+
+    mutationType = randi([1, 3]);  % Choose a mutation type randomly
+
+    switch mutationType
+        case 1
+            qnew = Swap(solution);
+        case 2
+            % Limit the scope of Reversion to a smaller subarray
+            qnew = LimitedReversion(solution);
+        case 3
+            % Limit the scope of Insertion to nearby elements
+            qnew = LimitedInsertion(solution);
+    end
+
+end
+
+function qnew = Swap(solution)
+    n = size(solution, 1);
+    i = randsample(n, 2);
+    i1 = i(1);
+    i2 = i(2);
+    qnew = solution;
+    qnew([i1, i2], :) = solution([i2 ,i1], :);
+end
+
+function qnew = LimitedReversion(solution)
+    n = size(solution, 1);
+    range = max(2, round(n * 0.1));  % Limit the range to 10% of the solution length
+    i = randsample(n - range + 1, 1);
+    j = min(i + range - 1, n);  % Ensure j doesn't exceed the length of the solution
+    qnew = solution;
+    qnew(i:j, :) = solution(j:-1:i, :);
+end
+
+
+function qnew = LimitedInsertion(solution)
+    n = size(solution, 1);
+    range = max(2, round(n * 0.1));  % Limit the range to 10% of the solution length
+    i = randi(n);
+    j = i + randi([-range, range], 1, 1);  % Ensure the new position is within the limited range
+    j = max(1, min(n, j));  % Ensure the new position is within bounds
+    qnew = solution;
+    if i < j
+        qnew = [solution(1:i-1, :); solution(i+1:j, :); solution(i, :); solution(j+1:end, :)];
+    elseif i > j
+        qnew = [solution(1:j-1, :); solution(i, :); solution(j:i-1, :); solution(i+1:end, :)];
+    end
+end
+
+
+
+
+function PlotRoute(depot, service_stations, polmoni_stations, best_solution)
+    % Extract coordinates
+    depot_x = depot(1);
+    depot_y = depot(2);
+    stations_x = [depot_x; service_stations(:, 1); polmoni_stations(:, 1)];
+    stations_y = [depot_y; service_stations(:, 2); polmoni_stations(:, 2)];
+
+    % Plot depot
+    plot(depot_x, depot_y, 'ko', 'MarkerSize', 10, 'MarkerFaceColor', 'yellow');
+    hold on;
+
+    % Plot service stations
+    plot(service_stations(:, 1), service_stations(:, 2), 'ro', 'MarkerSize', 10, 'MarkerFaceColor', 'red');
+
+    % Plot polmoni stations
+    plot(polmoni_stations(:, 1), polmoni_stations(:, 2), 'go', 'MarkerSize', 10, 'MarkerFaceColor', 'green');
+
+    % Plot route
+    plot([depot_x; best_solution(:, 1)], [depot_y; best_solution(:, 2)], '-b', 'LineWidth', 2);
+
+    % Connect last service station back to the depot to close the loop
+    plot([best_solution(end, 1); depot_x], [best_solution(end, 2); depot_y], '-b', 'LineWidth', 2);
+
+    % Labeling
+    text(depot_x, depot_y, ' Depot', 'VerticalAlignment', 'bottom');
+    for i = 1:size(service_stations, 1)
+        text(service_stations(i, 1), service_stations(i, 2), [' Station ', num2str(i)], 'VerticalAlignment', 'bottom');
+    end
+    for i = 1:size(polmoni_stations, 1)
+        text(polmoni_stations(i, 1), polmoni_stations(i, 2), [' Polmoni ', num2str(i)], 'VerticalAlignment', 'bottom');
+    end
+
+    % Set axis limits and grid
+    xlim([min(stations_x) - 5, max(stations_x) + 5]);
+    ylim([min(stations_y) - 5, max(stations_y) + 5]);
+    grid on;
+
+    % Title and labels
+    title('Best Route Between Depot and Service Stations');
+    xlabel('X-coordinate');
+    ylabel('Y-coordinate');
+
+    hold off;
+end
+
+function initial_solution = GenerateInitialSolutionWithPolmoni(depot, service_stations, polmoni_stations)
+    % Combine service stations and polmoni stations
+    all_stations = [service_stations; polmoni_stations];
+
+    % Create a random permutation of all stations
+    n = size(all_stations, 1);
+    perm = randperm(n);
+    initial_solution = all_stations(perm, :);
+end
+
+
+
+
+function [final_solution, final_cost, final_km_kl_ratio] = AddPolmoniStations(depot, bestP_solution, best_cost,bestP_km_kl_ratio, tank_initial, polmoni_stations, service_stations, tank_capacity, service_station_demand, max_distance)
+polmoni_presence=true;   
+%[~, ~,best_km_kl_ratio] = CalculateCostAndRatio(bestP_solution, depot, tank_initial,service_station_demand, tank_capacity,polmoni_presence);
+     % Initial solution
+    current_solution = bestP_solution;
+    current_distance = best_cost;
+    current_km_kl_ratio = bestP_km_kl_ratio;
+
+    best_solution = current_solution;
+    best_distance = current_distance;
+    best_km_kl_ratio = current_km_kl_ratio;
+    
+   
+ disp(['At first: current_distance(' num2str(current_distance) ') ']);
+    disp(['At first: current_km_kl_ratio(' num2str(current_km_kl_ratio) ') ']);
+    disp(['At first: best_distance(' num2str(best_distance) ') ']);
+    disp(['At first: best_km_kl_ratio(' num2str(best_km_kl_ratio) ') ']);
+
+        % SA parameters
+        MaxIt = 300;
+        MaxIt2 = 700;
+
+         % Estimate initial temperature
+    num_samples = 50;  % Number of random solutions to generate for temperature estimation
+    cost_differences = zeros(num_samples, 1);
+
+    for i = 1:num_samples
+        rand_solution = GenerateInitialSolutionWithPolmoni(depot, service_stations,polmoni_stations);
+        [cost, ~, ~] = CalculateCostAndRatio(rand_solution, depot, tank_initial, service_station_demand, tank_capacity, polmoni_presence, max_distance);
+        cost_differences(i) = cost;
+    end
+
+    % Calculate the standard deviation of the cost differences
+    std_dev_cost = std(cost_differences);
+    acceptance_prob=0.8;
+   % T0 = std_dev_cost / log(0.8);  % Initial temperature to achieve approximately 80% acceptance probability
+     T0_n = CalculateInitialTemperature(std_dev_cost, acceptance_prob);
+     T0 = abs(T0_n);
+
+      %  T0 = 500;
+        alpha = 0.90;
+
+        % Plot initial solution with service stations and depot
+        % PlotRoute(depot, service_stations, polmoni_stations, current_solution);
+        % pause(0.01);
+
+
+        for it = 1:MaxIt
+            for it2 = 1:MaxIt2
+                % Create neighbor
+                new_solution = generate_neighbor(current_solution, polmoni_stations, service_stations);
+ [new_cost,~, new_km_kl_ratio] = CalculateCostAndRatio(new_solution, depot, tank_initial,service_station_demand,tank_capacity, polmoni_presence, max_distance);
+               
+                 if accept_solution(current_km_kl_ratio, new_km_kl_ratio,new_cost,current_distance, T0) %% && new_cost <= current_distance
+            current_solution = new_solution;
+            current_distance = new_cost;
+            current_km_kl_ratio = new_km_kl_ratio;
+        end
+        
+        if current_km_kl_ratio < best_km_kl_ratio %% && new_cost <= current_distance
+            best_solution = current_solution;
+            best_distance = current_distance;
+            best_km_kl_ratio = current_km_kl_ratio;
+        end
+        
+
+                % Plot current solution with polmoni stations
+                % PlotRoute(depot, service_stations, polmoni_stations, current_solution);
+                % pause(0.01);
+            end
+
+            T0 = alpha * T0;
+                %disp(['Iteration: ', num2str(it), ', Temperature: ', num2str(T0)]); % Debug: print current temperature
+ % Plot current solution with polmoni stations
+                % PlotRoute(depot, service_stations, polmoni_stations, current_solution);
+                % pause(0.01);
+         %  disp(['Iteration: ' num2str(it) ', Best Cost: ' num2str(best_km_kl_ratio)]);
+         %   if current_km_kl_ratio <= best_km_kl_ratio
+          %      disp(['Decision: current_km_kl_ratio (' num2str(current_km_kl_ratio) ') is less than best_km_kl_ratio (' num2str(best_km_kl_ratio) '). worthy.']);
+          %  else
+          %      disp(['Decision: current_km_kl_ratio (' num2str(current_km_kl_ratio) ') is greater than best_km_kl_ratio (' num2str(best_km_kl_ratio) '). Not Adding route.']);
+          %  end
+        end
+    
+
+    final_solution = best_solution;
+    final_cost = best_distance;
+    final_km_kl_ratio= best_km_kl_ratio;
+    % PlotRoute(depot, service_stations, polmoni_stations, final_solution);
+    %             pause(0.01);
+    % disp([' final_cost(' num2str(final_cost) ') ']);
+    % disp([' final_km_kl_ratio(' num2str(final_km_kl_ratio) ') ']);
+    end
+
+    function neighbor = generate_neighbor_OLD(current_solution, polmoni_stations)
+
+    neighbor = current_solution;
+    
+    if rand < 0.8
+        % Add a random polmoni station if it's not already in the route
+        idx = randi(size(polmoni_stations, 1));
+        station_to_add = polmoni_stations(idx, :);
+        if ~ismember(station_to_add, neighbor, 'rows')
+            insert_pos = randi(size(neighbor, 1) - 1);
+            neighbor = [neighbor(1:insert_pos, :); station_to_add; neighbor(insert_pos + 1:end, :)];
+        end
+    else
+        % Remove a polmoni station if one is present
+        for i = 2:size(neighbor, 1) - 1
+            if ismember(neighbor(i, :), polmoni_stations, 'rows')
+                neighbor(i, :) = [];
+                break;
+            end
+        end
+    end
+    end
+
+    function T0 = CalculateInitialTemperature(std_dev_cost, acceptance_prob)
+    % Calculate initial temperature for simulated annealing
+        
+    % Calculate initial temperature
+    T0 = std_dev_cost / log(1 / acceptance_prob);
+end
+
+
+    function neighbor = generate_neighbor_OLD2(current_solution, polmoni_stations)
+    neighbor = current_solution;
+    
+    % Add a random polmoni station if it's not already in the route
+    available_stations = setdiff(polmoni_stations, neighbor, 'rows');
+    if ~isempty(available_stations)
+        idx = randi(size(available_stations, 1));
+        station_to_add = available_stations(idx, :);
+        insert_pos = randi(size(neighbor, 1) + 1); % Allow inserting at the last position too
+        temp_neighbor = [neighbor(1:insert_pos-1, :); station_to_add; neighbor(insert_pos:end, :)];
+        neighbor = temp_neighbor;
+        
+    end
+    end
+
+    function neighbor = generate_neighbor_OLD3(current_solution, polmoni_stations)
+    neighbor = current_solution;
+    
+    % Randomly decide to add, move, or remove a station
+    action = randi([1, 2]);
+    
+    if action == 1  % Add a random polmoni station
+        available_stations = setdiff(polmoni_stations, neighbor, 'rows');
+        if ~isempty(available_stations)
+            idx = randi(size(available_stations, 1));
+            station_to_add = available_stations(idx, :);
+            insert_pos = randi(size(neighbor, 1) + 1); % Allow inserting at the last position too
+            neighbor = [neighbor(1:insert_pos-1, :); station_to_add; neighbor(insert_pos:end, :)];
+        end
+    elseif action == 2  % Move a random existing polmoni station to a new position
+        if ~isempty(neighbor)
+            idx = randi(size(neighbor, 1));
+            station_to_move = neighbor(idx, :);
+            neighbor(idx, :) = []; % Remove it from the current position
+            insert_pos = randi(size(neighbor, 1) + 1); % Insert it at a new position
+            neighbor = [neighbor(1:insert_pos-1, :); station_to_move; neighbor(insert_pos:end, :)];
+        end
+    end
+    
+end
+
+function neighbor = generate_neighbor(current_solution, polmoni_stations, service_stations)
+    neighbor = current_solution;
+    
+    % Check if there are polmoni stations in the current solution
+    has_polmoni_stations = any(ismember(current_solution, polmoni_stations, 'rows'));
+    
+    if ~has_polmoni_stations
+        % If no polmoni stations, only add a random polmoni station
+        action = 1;
+    else
+        % Otherwise, randomly decide to add, move, or remove a station
+        action = randi([1, 2]);
+    end
+    
+    if action == 1  % Add a random polmoni station
+        available_stations = setdiff(polmoni_stations, neighbor, 'rows');
+        if ~isempty(available_stations)
+            idx = randi(size(available_stations, 1));
+            station_to_add = available_stations(idx, :);
+            insert_pos = randi(size(neighbor, 1) + 1); % Allow inserting at the last position too
+            neighbor = [neighbor(1:insert_pos-1, :); station_to_add; neighbor(insert_pos:end, :)];
+        end
+    elseif action == 2 && has_polmoni_stations  % Move a random existing polmoni station to a new position
+        % Find indices of polmoni stations in neighbor
+        polmoni_indices = ismember(neighbor, polmoni_stations, 'rows');
+        
+        % Filter out indices of service stations
+        service_indices = ismember(neighbor, service_stations, 'rows');
+        
+        % Indices of polmoni stations not in service
+        valid_polmoni_indices = find(polmoni_indices & ~service_indices);
+        
+        if ~isempty(valid_polmoni_indices)
+            % Select a random valid polmoni station index to move
+            idx = valid_polmoni_indices(randi(length(valid_polmoni_indices)));
+            
+            % Remove the station from its current position
+            station_to_move = neighbor(idx, :);
+            neighbor(idx, :) = [];
+            
+            % Insert it at a new random position
+            insert_pos = randi(size(neighbor, 1) + 1);
+            neighbor = [neighbor(1:insert_pos-1, :); station_to_move; neighbor(insert_pos:end, :)];
+        end
+    % elseif action == 3 && has_polmoni_stations  % Remove a random existing polmoni station
+    %     % Find indices of polmoni stations in neighbor
+    %     polmoni_indices = ismember(neighbor, polmoni_stations, 'rows');
+    % 
+    %     % Filter out indices of service stations
+    %     service_indices = ismember(neighbor, service_stations, 'rows');
+    % 
+    %     % Indices of polmoni stations not in service
+    %     valid_polmoni_indices = find(polmoni_indices & ~service_indices);
+    % 
+    %     if ~isempty(valid_polmoni_indices)
+    %         % Select a random valid polmoni station index to remove
+    %         idx = valid_polmoni_indices(randi(length(valid_polmoni_indices)));
+    % 
+    %         % Remove the station
+    %         neighbor(idx, :) = [];
+    %     end
+    end
+    
+end
+
+
+function accept = accept_solution_OLD(current_km_per_kl, new_km_per_kl, new_cost,current_distance, temperature)
+    % Calculate the change in the ratio
+    delta = new_km_per_kl - current_km_per_kl;
+    delta_cost = new_cost - current_distance
+    % to do ---->  Only accept a solution that increases the cost if the km/kl ratio improves by a certain percentage or remains below a threshold.
+
+    % If the new solution is better (delta < 0), always accept it
+    if delta < 0 && delta_cost < 0  
+        accept = true;
+    else
+        % Calculate the acceptance probability using the Boltzmann factor
+        p = exp(-delta / temperature);
+        p_cost = exp(-delta_cost / temperature);
+        
+        % Accept the new solution probabilistically
+        accept = rand <= p && rand <= p_cost;
+ % disp(['delta: ', num2str(delta), ', delta_cost: ', num2str(delta_cost),', temperature: ', num2str(temperature), ...
+ %              ', p: ', num2str(p),', p_cost: ', num2str(p_cost), ', rand: ', num2str(rand), ', accept: ', num2str(accept)]);
+     end
+end
+
+
+function accept = accept_solution(current_km_per_kl, new_km_per_kl, new_cost, current_cost, temperature)
+    % Calculate the change in the ratio and cost
+    delta_ratio = new_km_per_kl - current_km_per_kl;
+    delta_cost = new_cost - current_cost;
+
+    % Define thresholds or conditions for acceptance
+    ratio_threshold = 0.95;  % Example: Accept if new km/kl ratio is at least 95% of current
+    cost_threshold = 0.95;   % Example: Accept if new cost is at most 95% of current
+
+    % Evaluate the acceptance criteria
+    if delta_ratio < 0 && delta_cost < 0
+        accept = true;
+    elseif delta_ratio < 0 && delta_cost > 0 && (exp(-delta_ratio / temperature) > rand && exp(-delta_cost / temperature) > rand)
+        accept = true;
+    else
+        accept = false;
+    end
+
+    % Additional checks based on thresholds or specific conditions
+    if delta_cost > 0 && delta_ratio >= 0 && delta_ratio < ratio_threshold && delta_cost < cost_threshold
+        accept = true;  % Accept if cost increases marginally and ratio improves within thresholds
+    end
+
+    % Debugging info (optional)
+    %disp(['Delta Ratio: ', num2str(delta_ratio), ', Delta Cost: ', num2str(delta_cost), ', Temperature: ', num2str(temperature), ', Accept: ', num2str(accept)]);
+
+end
+
+
+function [final_solution_v2, final_cost_v2, final_km_kl_ratio_v2, best_polmoni_insert] = addBestPolmoniStation(service_stations,polmoni_stations, best_solution, best_cost, best_km_kl_ratio,depot,tank_initial,service_station_demand,tank_capacity,max_distance)
+    % Initialize variables to store best polmoni station to add
+polmoni_presence=true;
+    % Initialize best_polmoni_insert to store results
+    best_polmoni_insert = zeros(size(polmoni_stations, 1), 2);
+
+    % Iterate through each polmoni station to find the best one to add
+    for i = 1:size(polmoni_stations, 1)
+        % Calculate the impact of adding the polmoni station between service stations
+        % Find the closest service station pair in the current solution
+        min_distance_increase = Inf;
+        best_insertion_index = [];
+
+        for j = 1:(length(best_solution) - 1)
+            % Calculate distance from j-th service station to polmoni station
+            dist_to_polmoni = CalculateDistance(best_solution(j, :), polmoni_stations(i, :));
+            % Calculate distance from polmoni station to (j+1)-th service station
+            dist_from_polmoni = CalculateDistance(polmoni_stations(i, :), best_solution(j + 1, :));
+
+            % Calculate current distance from j-th to (j+1)-th service station
+            current_distance = CalculateDistance(best_solution(j, :), best_solution(j + 1, :));
+
+            % Calculate new distance if polmoni station is inserted between j-th and (j+1)-th service station
+            new_distance = dist_to_polmoni + dist_from_polmoni;
+
+            % Calculate increase in distance
+            distance_increase = new_distance - current_distance;
+
+            % Check if this is the smallest increase found
+            if distance_increase < min_distance_increase
+                min_distance_increase = distance_increase;
+                best_insertion_index = j; % Insert after j-th service station
+            end
+        end
+
+        % Store the best polmoni station insertion position and distance increase
+        best_polmoni_insert(i, :) = [min_distance_increase, best_insertion_index];
+    end
+
+    % Find the minimum value of min_distance_increase
+    [min_distance, idx] = min(best_polmoni_insert(:, 1));
+    best_polmoni_station = polmoni_stations(idx, :);
+
+    % Add the best polmoni station found to the final solution at the best insertion position
+    if ~isempty(best_polmoni_station)
+        final_solution_v2 = [best_solution(1:best_polmoni_insert(idx, 2), :); best_polmoni_station; best_solution(best_polmoni_insert(idx, 2) + 1:end, :)];
+        [final_cost_v2, ~ , final_km_kl_ratio_v2]  = CalculateCostAndRatio(final_solution_v2, depot, tank_initial, service_station_demand, tank_capacity, polmoni_presence, max_distance); % Assign appropriate value for final_cost
+        %final_km_kl_ratio = min_distance; % Assign appropriate value for final_km_kl_ratio
+    if final_cost_v2> best_cost && final_km_kl_ratio_v2>best_km_kl_ratio
+final_solution_v2 = best_solution;
+        final_cost_v2 = best_cost;
+        final_km_kl_ratio_v2 = best_km_kl_ratio;
+    end
+    else
+        % If no valid polmoni station found, return the original solution
+        final_solution_v2 = best_solution;
+        final_cost_v2 = best_cost;
+        final_km_kl_ratio_v2 = best_km_kl_ratio;
+    end
+    %  PlotRoute(depot, service_stations, polmoni_stations, final_solution);
+    % pause(0.01);
+end
+
+
+
+
+
+
+
+
+function [distances_polmoni_to_all, min_distances, nearest_indices] = calculate_distances(depot, service_stations, polmoni_stations)
+    % Calculate the number of service stations and Polmoni stations
+    num_service_stations = size(service_stations, 1);
+    num_polmoni_stations = size(polmoni_stations, 1);
+    
+    % Initialize the distance matrix
+    distances_polmoni_to_service = zeros(num_polmoni_stations, num_service_stations);
+    
+    % Calculate the distance from each Polmoni station to each service station
+    for i = 1:num_polmoni_stations
+        for j = 1:num_service_stations
+            distances_polmoni_to_service(i, j) = sqrt((polmoni_stations(i, 1) - service_stations(j, 1))^2 + ...
+                                                      (polmoni_stations(i, 2) - service_stations(j, 2))^2);
+        end
+    end
+    
+    % Initialize the depot distances vector
+    distances_polmoni_to_depot = zeros(num_polmoni_stations, 1);
+    
+    % Calculate the distance from each Polmoni station to the depot
+    for i = 1:num_polmoni_stations
+        distances_polmoni_to_depot(i) = sqrt((polmoni_stations(i, 1) - depot(1))^2 + ...
+                                             (polmoni_stations(i, 2) - depot(2))^2);
+    end
+    
+    % Concatenate the depot distances to the distances matrix
+    distances_polmoni_to_all = [distances_polmoni_to_service, distances_polmoni_to_depot];
+    
+    % Find the minimum distances and their indices
+    [min_distances, nearest_indices] = min(distances_polmoni_to_all, [], 2);
+
+    %  % Combine the minimum distances and nearest indices into one matrix
+    % min_distances_with_indices = [min_distances, nearest_indices];
+    % 
+    %   % Find the overall minimum distance and its location
+    % [overall_min_distance, polmoni_station_idx] = min(min_distances_with_indices(:, 1));
+    % overall_min_location = min_distances_with_indices(polmoni_station_idx, 2);
+
+    % Create a cell array to store the names of the nearest locations
+    nearest_locations = cell(num_polmoni_stations, 1);
+    
+    % Assign names to the service stations and depot
+    location_names = [arrayfun(@(x) sprintf('Service Station %d', x), 1:num_service_stations, 'UniformOutput', false), {'Depot'}];
+    
+    % Map the indices to their corresponding location names
+    for i = 1:num_polmoni_stations
+        nearest_locations{i} = location_names{nearest_indices(i)};
+    end
+    
+    % Display the results
+    disp('Distances from Polmoni stations to service stations and depot:');
+    disp(distances_polmoni_to_all);
+    disp('Minimum distances and nearest locations:');
+    for i = 1:num_polmoni_stations
+        fprintf('Polmoni Station %d is closest to %s with a distance of %.2f\n', i, nearest_locations{i}, min_distances(i));
+    end
+end
+
+function [best_solution_v3, best_cost_v3, best_km_kl_ratio_v3] = SimulatedAnnealing_v3(depot, initial_solution, tank_initial, service_stations, polmoni_stations,tank_capacity, service_station_demand, max_distance,polmoni_presence)
+    % SA parameters
+    MaxIt = 170;
+    MaxIt2 = 700;
+   % T0 = 150;
+    alpha = 0.95;
+
+
+   % Estimate initial temperature
+    num_samples = 50;  % Number of random solutions to generate for temperature estimation
+    cost_differences = zeros(num_samples, 1);
+
+    for i = 1:num_samples
+        rand_solution = GenerateInitialSolution(depot,service_stations);
+        if polmoni_presence
+        [cost, ~] = CalculateCostAndRatioPolmoni(rand_solution, depot, tank_capacity, max_distance);
+        else
+        [cost, ~, ~] = CalculateCostAndRatio(rand_solution, depot, tank_initial, service_station_demand, tank_capacity, max_distance);
+        end
+        cost_differences(i) = cost;
+    end
+
+    % Calculate the standard deviation of the cost differences
+    std_dev_cost = std(cost_differences);
+    acceptance_prob=0.8;
+     T0_n = CalculateInitialTemperature(std_dev_cost, acceptance_prob);
+     T0 = abs(T0_n);
+
+
+    % Initial solution
+    current_solution = initial_solution;
+    if polmoni_presence
+    [current_cost,current_km_kl_ratio] = CalculateCostAndRatioPolmoni(current_solution, depot,tank_capacity, max_distance);
+    else
+    [current_cost, ~, current_km_kl_ratio] = CalculateCostAndRatio(current_solution, depot, tank_initial,service_station_demand,tank_capacity, max_distance);
+ if current_cost == inf %Distance Constraint and capacity constraints check
+        disp('The total demand of service stations or the distance exceeds the parameters. Optimization cannot proceed.');
+        best_solution_v3 = [];
+        best_cost_v3= inf;
+        best_km_kl_ratio_v3= inf;
+        return;
+   
+    end
+    end
+   
+
+
+    best_solution_v3 = current_solution;
+    best_cost_v3 = current_cost;
+    best_km_kl_ratio_v3 = current_km_kl_ratio;
+    T = T0;
+
+    % Plot initial solution with service stations and depot
+    % PlotRoute(depot, service_stations, polmoni_stations, current_solution);
+    % pause(0.01);
+
+    for it = 1:MaxIt
+        for it2 = 1:MaxIt2
+            % Create neighbor
+            new_solution = CreateNeighbor(current_solution);
+            if polmoni_presence
+            [new_cost,new_km_kl_ratio] = CalculateCostAndRatioPolmoni(new_solution, depot, tank_capacity, max_distance);
+            else
+            [new_cost, ~, new_km_kl_ratio] = CalculateCostAndRatio(new_solution, depot, tank_initial, service_station_demand, tank_capacity, max_distance);
+            end
+            if new_km_kl_ratio< current_km_kl_ratio  && new_cost <= current_cost
+                % Accept better solution
+                current_solution = new_solution;
+                current_cost = new_cost;
+                current_km_kl_ratio = new_km_kl_ratio;
+            else
+                % Accept worse solution conditionally
+                delta_cost = new_cost - current_cost;
+                delta_km_kl_ratio= new_km_kl_ratio- current_km_kl_ratio;
+                p_cost = exp(-delta_cost / T);
+                p_km_kl_ratio =  exp(-delta_km_kl_ratio / T);
+                if rand <= p_km_kl_ratio  && new_cost < inf  && rand <= p_cost
+                    current_solution = new_solution;
+                    current_cost = new_cost;
+                    current_km_kl_ratio = new_km_kl_ratio;
+
+                end
+            end
+
+            % Update best solution
+            if current_km_kl_ratio<= best_km_kl_ratio_v3 && current_cost <= best_cost_v3
+                best_solution_v3 = current_solution;
+                best_cost_v3 = current_cost;
+                best_km_kl_ratio_v3 = current_km_kl_ratio;
+            end
+
+         
+        end
+
+        % Reduce temperature
+        T = alpha * T;
+
+        % Print the current iteration and best cost
+      %  disp(['Iteration: ' num2str(it) ', Best Cost: ' num2str(best_cost) ', Best Km/KL raport: ' num2str(best_km_kl_ratio)]);
+   % Plot current solution with polmoni stations
+            % PlotRoute(depot, service_stations, polmoni_stations, current_solution);
+            % pause(0.01);
+        end
+end
+
+function [cost, product_distributed, km_kl_ratio] = CalculateCostAndRatio_v3(solution, depot, tank_initial, service_station_demand, tank_capacity, max_distance)
+    n = size(solution, 1);
+    cost = 0;
+    product_distributed = tank_initial;
+    current_location = depot;
+
+    for i = 1:n
+        cost = cost + CalculateDistance(current_location, solution(i, :));
+        current_location = solution(i, :);
+            station_demand = service_station_demand(i); 
+            product_distributed = product_distributed + station_demand;
+            if product_distributed > tank_capacity  %Capacity Constraint
+                cost = inf; % Assign a high cost if the capacity is exceeded
+                break;
+            end
+        
+    end
+ %   disp(['cost: ' num2str(cost) ]);
+
+if cost > inf %%|| cost >max_distance %capacity and Distance Constraint
+      cost= inf;
+      km_kl_ratio=inf;
+
+
+else 
+      cost = cost + CalculateDistance(current_location, depot);
+ km_kl_ratio = cost / product_distributed;
+end
+
+end
+
+function [cost, km_kl_ratio] = CalculateCostAndRatioPolmoni(solution, depot, tank_capacity, max_distance)
+    n = size(solution, 1);
+    cost = 0;
+    current_location = depot;
+
+    for i = 1:n
+        cost = cost + CalculateDistance(current_location, solution(i, :));
+        current_location = solution(i, :);       
+    end
+    
+% if  cost >max_distance %capacity and Distance Constraint
+%       cost= inf;
+%       km_kl_ratio=inf;
+% 
+% 
+% else 
+      cost = cost + CalculateDistance(current_location, depot);
+ km_kl_ratio = cost / tank_capacity;
+%end
+
+end
+

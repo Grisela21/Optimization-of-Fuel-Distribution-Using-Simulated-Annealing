@@ -1,0 +1,54 @@
+function insertResultsToDB(results, conn, depot)
+    % Check if the connection is valid
+    if isempty(conn) || ~isvalid(conn)
+        error('Database connection is not valid.');
+    end
+
+    % Convert depot coordinates to a string
+    depotStr = sprintf('%.4f, %.4f', depot(1), depot(2));
+
+    % Prepare the SQL query template
+    sqlQueryTemplate = ['INSERT INTO [SPEED].[dbo].[ViaggiMover] (data, km, tempo, tempoScarico, idMezzo, ', ...
+                        'creato, basePartenza, baseCarico, baseArrivo, oraPartenza, numViaggio, trasmesso, ', ...
+                        'stato, id_vettore, selezionato) VALUES (''%s'', %f, %f, %s, %d, %d, ''%s'', ''%s'', ''%s'', ''%s'', %d, %d, %d, %d, %d)'];
+
+    % Loop through each result and insert into the database
+    % for idx = 1:length(results)
+    %     res = results{idx};
+
+        % Prepare the SQL query with the result data
+        sqlQuery = sprintf(sqlQueryTemplate, ...
+                                                    
+    '2024-08-01',..                
+    19.482,                      
+    0.229,                       
+    NULL,                        
+    123,                         
+    1,                          
+    '44.9247, 9.9186',           
+    '44.9247, 9.9186',           
+    '44.9247, 9.9186',           
+    '05:00:00',                 
+    1001,                       
+    0,                          
+    1,                          
+    123456,..                     
+    1); % Assuming selezionato is not provided
+
+        % Display the SQL query for debugging
+        disp(['Executing SQL Query: ', sqlQuery]);
+
+        % Execute the SQL query
+        try
+            exec(conn, sqlQuery);
+        catch ME
+            disp(['Failed to insert result for ClusterID ', num2str(res.ClusterID), ': ', ME.message]);
+        end
+   % end
+
+    % Commit the transaction if needed
+    % Uncomment if your database supports transactions
+    % conn.commit();
+
+    disp('Results inserted successfully.');
+end
