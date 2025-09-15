@@ -1,6 +1,6 @@
 # Optimization-of-Fuel-Distribution-Using-Simulated-Annealing
 Hybrid optimization of fuel distribution using Simulated Annealing, integrating CVRP and IRP models with intermediate Polmoni stations for improved efficiency, cost reduction, and route optimization.
-
+📄 [View PDF](Fuel_Distribution_Presentation.pdf)
 
 # Fuel Distribution Optimization - Hybrid CVRP-IRP
 
