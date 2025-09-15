@@ -24,15 +24,6 @@ This project addresses **real-world fuel distribution optimization** for energy 
 - **Tools:** MATLAB, LaTeX (Beamer), Python (optional for plotting)  
 - **Skills Highlighted:** Route optimization, logistics modeling, hybrid algorithm design, data visualization  
 
-## 📁 Repository Structure
-Fuel-Distribution-Optimization/
-│
-├─ presentation/  PDF presentation
-│ └─ Fuel_Distribution_Presentation.pdf
-├─ results/ # Key plots, tables, and figures
-├─ scripts/ # MATLAB/Python scripts (if available)
-└─ README.md
-
 
 ## 🎯 Impact & Takeaways
 - Demonstrates integration of routing and inventory problems for complex networks.  
